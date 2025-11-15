@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "/data/danielsohn0827000/uni-dthon-project/test.py", line 8, in <module>
+    from model import QueryBasedDetector # 👈 model.py에서 클래스 임포트
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/danielsohn0827000/uni-dthon-project/model.py", line 5, in <module>
+    import easyocr
+ModuleNotFoundError: No module named 'easyocr'

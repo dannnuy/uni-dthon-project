@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/data/danielsohn0827000/uni-dthon-project/test.py", line 8, in <module>
+    from model import QueryBasedDetector # 👈 model.py에서 클래스 임포트
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/danielsohn0827000/uni-dthon-project/model.py", line 73
+    query_inputs = self.clip_processor(text=[query_text], return_tensors="pt", padding=True, , truncation=True).to(self.device)
+                                                                                             ^
+SyntaxError: invalid syntax

@@ -1,0 +1,35 @@
+사용 장치: 0
+발견된 체크포인트: /data/danielsohn0827000/uni-dthon-project/finetune_run/weights/last.pt
+>>> 이어서 학습을 재개합니다.
+학습을 시작합니다...
+New https://pypi.org/project/ultralytics/8.3.228 available 😃 Update with 'pip install -U ultralytics'
+Ultralytics 8.3.151 🚀 Python-3.12.7 torch-2.7.0+cu126 CUDA:0 (NVIDIA RTX A5000, 24248MiB)
+[34m[1mengine/trainer: [0magnostic_nms=False, amp=True, augment=False, auto_augment=randaugment, batch=32, bgr=0.0, box=7.5, cache=False, cfg=None, classes=None, close_mosaic=10, cls=0.5, conf=None, copy_paste=0.0, copy_paste_mode=flip, cos_lr=False, cutmix=0.0, data=/data/danielsohn0827000/uni/yolo_dataset/data.yaml, degrees=0.0, deterministic=True, device=0, dfl=1.5, dnn=False, dropout=0.0, dynamic=False, embed=None, epochs=50, erasing=0.4, exist_ok=True, fliplr=0.5, flipud=0.0, format=torchscript, fraction=1.0, freeze=None, half=False, hsv_h=0.015, hsv_s=0.7, hsv_v=0.4, imgsz=640, int8=False, iou=0.7, keras=False, kobj=1.0, line_width=None, lr0=0.01, lrf=0.01, mask_ratio=4, max_det=300, mixup=0.0, mode=train, model=/data/danielsohn0827000/uni-dthon-project/finetune_run/weights/last.pt, momentum=0.937, mosaic=1.0, multi_scale=False, name=finetune_run, nbs=64, nms=False, opset=None, optimize=False, optimizer=auto, overlap_mask=True, patience=100, perspective=0.0, plots=True, pose=12.0, pretrained=True, profile=False, project=/data/danielsohn0827000/uni-dthon-project, rect=False, resume=/data/danielsohn0827000/uni-dthon-project/finetune_run/weights/last.pt, retina_masks=False, save=True, save_conf=False, save_crop=False, save_dir=/data/danielsohn0827000/uni-dthon-project/finetune_run, save_frames=False, save_json=False, save_period=-1, save_txt=False, scale=0.5, seed=0, shear=0.0, show=False, show_boxes=True, show_conf=True, show_labels=True, simplify=True, single_cls=False, source=None, split=val, stream_buffer=False, task=detect, time=None, tracker=botsort.yaml, translate=0.1, val=True, verbose=True, vid_stride=1, visualize=False, warmup_bias_lr=0.0, warmup_epochs=3.0, warmup_momentum=0.8, weight_decay=0.0005, workers=8, workspace=None
+
+Traceback (most recent call last):
+  File "/data/danielsohn0827000/anaconda3/lib/python3.12/site-packages/ultralytics/engine/trainer.py", line 603, in get_dataset
+    data = check_det_dataset(self.args.data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/danielsohn0827000/anaconda3/lib/python3.12/site-packages/ultralytics/data/utils.py", line 463, in check_det_dataset
+    raise FileNotFoundError(m)
+FileNotFoundError: Dataset '/data/danielsohn0827000/uni/yolo_dataset/data.yaml' images not found, missing path '/data/danielsohn0827000/uni/yolo_dataset/images/val'
+Note dataset download directory is '/data/danielsohn0827000/uni-dthon-project/datasets'. You can update this in '/home/danielsohn0827000/.config/Ultralytics/settings.json'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/data/danielsohn0827000/uni-dthon-project/train.py", line 92, in <module>
+    main()
+  File "/data/danielsohn0827000/uni-dthon-project/train.py", line 73, in main
+    results = model.train(**train_args)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/danielsohn0827000/anaconda3/lib/python3.12/site-packages/ultralytics/engine/model.py", line 791, in train
+    self.trainer = (trainer or self._smart_load("trainer"))(overrides=args, _callbacks=self.callbacks)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/danielsohn0827000/anaconda3/lib/python3.12/site-packages/ultralytics/engine/trainer.py", line 153, in __init__
+    self.data = self.get_dataset()
+                ^^^^^^^^^^^^^^^^^^
+  File "/data/danielsohn0827000/anaconda3/lib/python3.12/site-packages/ultralytics/engine/trainer.py", line 607, in get_dataset
+    raise RuntimeError(emojis(f"Dataset '{clean_url(self.args.data)}' error ❌ {e}")) from e
+RuntimeError: Dataset '/data/danielsohn0827000/uni/yolo_dataset/data.yaml' error ❌ Dataset '/data/danielsohn0827000/uni/yolo_dataset/data.yaml' images not found, missing path '/data/danielsohn0827000/uni/yolo_dataset/images/val'
+Note dataset download directory is '/data/danielsohn0827000/uni-dthon-project/datasets'. You can update this in '/home/danielsohn0827000/.config/Ultralytics/settings.json'

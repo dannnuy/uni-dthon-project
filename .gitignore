@@ -1,26 +1,24 @@
-# Python 임시 파일
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 
-# Conda 가상환경 폴더
-.conda/
+# C extensions
+*.so
 
-# VS Code 편집기 설정 폴더
-.vscode/
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
 
-# -------------------------------
-# (필수) 대회 관련 파일
-# -------------------------------
-
-# 1. 데이터 폴더 (용량 매우 큼)
-train_valid/
-
-# 테스트 데이터 폴더 (제공된다면)
-test/
-
-# 2. 모델 가중치 파일
+# Model files
 *.pth
-*.ckpt
+*.pt
 
-# 3. 최종 제출 파일
-submission.csv
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Environments
+.venv/
+venv/
