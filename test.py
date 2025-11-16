@@ -113,7 +113,7 @@ def main():
     df['pred_h'] = pred_df['pred_h']
 
     # 스크린샷과 동일한 형태로 저장 (query_text 컬럼 포함)
-    df.to_csv(SUBMISSION_CSV_PATH, index=False)
+    df.to_csv(SUBMISSION_CSV_PATH, index=False, encoding='utf-8-sig')
     print(f"Inference complete. Submission file saved to: {SUBMISSION_CSV_PATH}")
 
 if __name__ == "__main__":

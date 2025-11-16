@@ -1,92 +1,236 @@
-# 파일명: train.py
+# 파일명: model.py
+# (CUDA 'device-side assert' 오류 수정 완료)
 
 import os
 import torch
-import shutil
+import easyocr
+import numpy as np
+from PIL import Image
 from ultralytics import YOLO
+# 👇 'AutoConfig'를 추가로 임포트합니다.
+from transformers import CLIPModel, CLIPProcessor, CLIPImageProcessor, AutoTokenizer, AutoConfig
 
-# --- 1. 경로 설정 ---
+class QueryBasedDetector:
+    def __init__(self, best_pt_path, device=None):
+        """
+        추론에 필요한 모든 모델(YOLO, CLIP, OCR)을
+        한 번만 로드하여 클래스에 저장합니다.
+        
+        Args:
+            best_pt_path (str): train.py로 학습시킨 'best.pt' 파일 경로
+            device (str, optional): 'cuda' 또는 'cpu'. None이면 자동 감지.
+        """
+        
+        if device is None:
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        else:
+            self.device = device
+            
+        print(f"Using device: {self.device}")
 
-# preprocess.py의 OUTPUT_DATA_DIR에 생성된 data.yaml 경로
-DATA_YAML_PATH = "/data/danielsohn0827000/uni/yolo_dataset/data.yaml"
+        # 1. (Stage 1) YOLO 탐지기 로드
+        self.detector = YOLO(best_pt_path).to(self.device)
+        print(f"YOLO detector loaded from: {best_pt_path}")
 
-# 다운로드한 사전 학습 가중치 경로
-PRETRAINED_MODEL_PATH = "/data/danielsohn0827000/uni-dthon-project/report-8n.pt"
+        # --- 👇 [수정됨] CLIP 로더 로직 (CUDA 오류 해결) ---
+        
+        # 2. (Stage 2) CLIP 매칭기 로드
+        clip_model_name = "sentence-transformers/clip-ViT-B-32-multilingual-v1"
+        base_clip_name = "openai/clip-vit-base-patch32" # 이미지 프로세서 참조용
+        
+        print(f"Loading CLIP model: {clip_model_name}")
 
-# 학습 결과(runs)가 저장될 '프로젝트' 디렉토리
-OUTPUT_PROJECT_DIR = "/data/danielsohn0827000/uni-dthon-project"
+        try:
+            # (a) 로드할 모델의 '설정(Config)'을 명시적으로 불러옵니다.
+            # 이 config에는 올바른 vocab_size(119547)가 포함되어 있습니다.
+            config = AutoConfig.from_pretrained(clip_model_name)
+            
+            # (b) 모델 가중치 로드 (중요: config=config 전달)
+            # 모델이 생성될 때 위에서 로드한 config를 사용하도록 강제합니다.
+            self.clip_model = CLIPModel.from_pretrained(
+                clip_model_name,
+                config=config 
+            ).to(self.device)
+            
+            # (c) 텍스트 토크나이저 로드 (다국어)
+            tokenizer = AutoTokenizer.from_pretrained(clip_model_name)
+            
+            # (d) 이미지 프로세서 로드 (원본)
+            image_processor = CLIPImageProcessor.from_pretrained(base_clip_name)
 
-# 최종 best.pt를 저장하고 싶은 '정확한' 파일 경로
-FINAL_BEST_PT_PATH = "/data/danielsohn0827000/uni-dthon-project/best.pt"
+            # (e) CLIPProcessor 수동 조합
+            self.clip_processor = CLIPProcessor(image_processor=image_processor, tokenizer=tokenizer)
+            
+            print(f"CLIP model and processor loaded successfully.")
+            
+        except Exception as e:
+            print(f"Error loading CLIP components: {e}")
+            raise e # 오류 발생 시 중지
 
-# --- 2. 학습 설정 ---
-EPOCHS = 50
-BATCH_SIZE = 32
-IMG_SIZE = 640
-EXPERIMENT_NAME = "finetune_run" # 학습 결과가 저장될 하위 폴더 이름
+        # --- 👆 [수정] 여기까지 ---
 
-# --- 3. (추가) 재개할 체크포인트 경로 설정 ---
-# YOLO는 이 경로에 'last.pt'와 'best.pt'를 저장합니다.
-LAST_PT_PATH = os.path.join(OUTPUT_PROJECT_DIR, EXPERIMENT_NAME, 'weights/last.pt')
+        # 3. (Stage 2) OCR 로드 (캡션 추출용)
+        self.ocr_reader = easyocr.Reader(['ko', 'en'], gpu=(self.device == "cuda"))
+        print("EasyOCR loaded.")
 
+        # 4. 스코어링 가중치 (실험적으로 조절)
+        self.caption_weight = 0.7
+        self.visual_weight = 0.3
 
-def main():
-    # 0. 필수 파일 및 경로 검사
-    if not os.path.exists(DATA_YAML_PATH):
-        print(f"오류: data.yaml 파일을 찾을 수 없습니다. 경로: {DATA_YAML_PATH}")
-        print("preprocess.py를 먼저 실행했는지 확인하세요.")
-        return
+    @torch.no_grad() # 추론 모드에서는 그래디언트 계산 비활성화
+    def predict(self, image_path, query_text):
+        """
+        하나의 이미지와 질문(query)을 받아
+        가장 점수가 높은 객체의 [x, y, w, h]를 반환합니다.
+        """
+        
+        try:
+            # 쿼리 텍스트가 None이거나 float(NaN)일 경우를 대비
+            if not isinstance(query_text, str):
+                query_text = "" # 빈 문자열로 처리
 
-    # 1. 장치 설정
-    device = 0 if torch.cuda.is_available() else 'cpu'
-    print(f"사용 장치: {device}")
+            image_pil = Image.open(image_path).convert("RGB")
+        except Exception as e:
+            print(f"Error opening image {image_path}: {e}")
+            return [0, 0, 0, 0] 
 
-    # --- 2. 모델 로드 (수정된 부분: 재개 기능) ---
-    model = None
-    train_args = {
-        "data": DATA_YAML_PATH,
-        "epochs": EPOCHS,
-        "batch": BATCH_SIZE,
-        "imgsz": IMG_SIZE,
-        "device": device,
-        "project": OUTPUT_PROJECT_DIR,
-        "name": EXPERIMENT_NAME,
-        "exist_ok": True
-    }
+        # [수정] YOLO conf 값 조절로 후보군 확대
+        yolo_results = self.detector.predict(image_pil, verbose=False, conf=0.1) 
+        candidate_boxes = yolo_results[0].boxes.xyxy.cpu().numpy() 
 
-    if os.path.exists(LAST_PT_PATH):
-        print(f"발견된 체크포인트: {LAST_PT_PATH}")
-        print(">>> 이어서 학습을 재개합니다.")
-        model = YOLO(LAST_PT_PATH)  # 'last.pt'에서 모델 로드
-        train_args["resume"] = True  # True로 설정 시 옵티마이저 상태 등 복원
-    else:
-        print(f"체크포인트 없음. {PRETRAINED_MODEL_PATH}에서 새 학습을 시작합니다.")
-        if not os.path.exists(PRETRAINED_MODEL_PATH):
-            print(f"오류: 사전 학습 모델을 찾을 수 없습니다. 경로: {PRETRAINED_MODEL_PATH}")
-            return
-        model = YOLO(PRETRAINED_MODEL_PATH)  # 'report-8n.pt'에서 모델 로드
-        # 'resume' 키는 추가되지 않음
+        if len(candidate_boxes) == 0:
+            return [0, 0, 0, 0] 
 
-    # 3. 모델 학습
-    print(f"학습을 시작합니다...")
-    # **train_args: 딕셔너리를 인수로 자동 분해 (resume=True가 있거나 없게 됨)
-    results = model.train(**train_args)
-    
-    # 4. 학습 완료 및 best.pt 복사
-    print("학습 완료.")
-    
-    # YOLO가 생성한 best.pt의 원본 경로
-    original_best_pt_path = os.path.join(results.save_dir, 'weights/best.pt')
+        # 2-1. 질문(Query) 텍스트를 CLIP 피처로 변환 (한 번만)
+        query_inputs = self.clip_processor(text=[query_text], return_tensors="pt", padding=True, truncation=True).to(self.device)
+        
+        # (오류가 발생했던 지점)
+        query_features = self.clip_model.get_text_features(**query_inputs).detach() # Shape: [1, D]
 
-    if os.path.exists(original_best_pt_path):
-        print(f"최종 'best.pt'를 요청한 경로로 복사합니다: {FINAL_BEST_PT_PATH}")
-        shutil.copy(original_best_pt_path, FINAL_BEST_PT_PATH)
-        print("복사 완료. 'best.pt' 파일을 추론(test.py)에 사용할 수 있습니다.")
-    else:
-        # best.pt는 검증 성능이 좋아질 때만 저장되므로, 
-        # 학습이 일찍 끊기면(예: 1에포크) 아직 없을 수도 있음
-        print(f"경고: 'best.pt' 원본 파일을 찾을 수 없습니다. 경로: {original_best_pt_path}")
-        print("'best.pt'는 최소 1 epoch의 검증(val)이 끝나야 생성됩니다.")
+        best_box = None
+        highest_score = -float('inf')
 
+        for box in candidate_boxes:
+            x1, y1, x2, y2 = map(int, box)
+
+            # 1. 캡션 3개 추출 (위/아래)
+            caption_text_above = self._get_caption_text(image_pil, box, "above")
+            caption_text_below = self._get_caption_text(image_pil, box, "below")
+            
+            # 2-3. 이미지 조각(patch) 추출
+            patch_img = image_pil.crop((x1, y1, x2, y2))
+            
+            # (a) 이미지 인코딩
+            image_inputs = self.clip_processor(images=[patch_img], return_tensors="pt").to(self.device)
+            visual_features = self.clip_model.get_image_features(image_inputs.pixel_values).detach() # Shape: [1, D]
+            
+            # (b) 텍스트 인코딩 (위/아래)
+            text_inputs = self.clip_processor(
+                text=[caption_text_above, caption_text_below],
+                return_tensors="pt", 
+                padding=True,
+                truncation=True
+            ).to(self.device)
+            text_features = self.clip_model.get_text_features(text_inputs.input_ids, text_inputs.attention_mask).detach() # Shape: [2, D]
+            caption_features_above = text_features[0] # Shape: [D]
+            caption_features_below = text_features[1] # Shape: [D]
+
+            # --- [수정됨] 적응형 스코어링 로직 ---
+
+            # (a) 이미지 점수 (공통)
+            score_visual = torch.nn.functional.cosine_similarity(query_features, visual_features)
+
+            # (b) 텍스트 점수 (OCR 결과가 있을 때만 계산)
+            has_caption_above = len(caption_text_above.strip()) > 0
+            has_caption_below = len(caption_text_below.strip()) > 0
+
+            score_caption = 0.0 # 기본값
+
+            if has_caption_above or has_caption_below:
+                score_caption_above = 0.0
+                score_caption_below = 0.0
+                
+                if has_caption_above:
+                    score_caption_above = torch.nn.functional.cosine_similarity(query_features, caption_features_above.unsqueeze(0))
+                if has_caption_below:
+                    score_caption_below = torch.nn.functional.cosine_similarity(query_features, caption_features_below.unsqueeze(0))
+                
+                score_caption = max(score_caption_above, score_caption_below)
+                
+                # 캡션이 있을 때의 최종 점수
+                final_score = (self.caption_weight * score_caption) + (self.visual_weight * score_visual)
+            
+            else:
+                # 캡션이 아예 없으면 비주얼 점수만 100% 반영
+                final_score = score_visual 
+            
+            # --- 👆 ---
+            
+            if final_score > highest_score:
+                highest_score = final_score
+                best_box = box 
+
+        # 3. 포맷 변환 및 반환
+        if best_box is not None:
+            x1, y1, x2, y2 = best_box
+            pred_x = x1
+            pred_y = y1
+            pred_w = x2 - x1
+            pred_h = y2 - y1
+            return [float(pred_x), float(pred_y), float(pred_w), float(pred_h)]
+        else:
+            return [0, 0, 0, 0] 
+
+    # --- [수정됨] OCR 영역 확장 (X축) ---
+    def _get_caption_text(self, image_pil, box, position="below", margin_px=50, x_expand_px=100):
+        """
+        (Helper) BBox의 '위(above)' 또는 '아래(below)'에서 텍스트를 OCR로 추출
+        (x_expand_px를 추가하여 BBox 너비보다 넓게 탐색)
+        """
+        try:
+            x1, y1, x2, y2 = map(int, box)
+            img_width, img_height = image_pil.size
+            
+            # BBox 너비보다 좌우 100px씩 넓게 탐색
+            cap_x1 = max(0, x1 - x_expand_px)
+            cap_x2 = min(img_width, x2 + x_expand_px)
+            
+            cap_y1, cap_y2 = 0, 0
+
+            if position == "above":
+                cap_y2 = max(0, y1)            
+                cap_y1 = max(0, y1 - margin_px)
+            else: # "below" (default)
+                cap_y1 = min(y2, img_height)      
+                cap_y2 = min(img_height, y2 + margin_px) 
+
+            if cap_x1 >= cap_x2 or cap_y1 >= cap_y2:
+                return "" # 영역이 없음
+
+            caption_zone_img = image_pil.crop((cap_x1, cap_y1, cap_x2, cap_y2))
+            
+            ocr_results = self.ocr_reader.readtext(np.array(caption_zone_img), detail=0)
+            return " ".join(ocr_results)
+        except Exception as e:
+            # OCR 에러가 나도 빈 문자열을 반환하여 메인 로직이 멈추지 않게 함
+            # print(f"Warning: OCR failed for box {box} ({position}). Error: {e}")
+            return ""
+    # --- 👆 ---
+
+# ---
+# 이 파일이 직접 실행될 때 (테스트용)
 if __name__ == "__main__":
-    main()
+    # train.py에서 생성된 'best.pt' 경로
+    BEST_PT_FILE = "/data/danielsohn0827000/uni-dthon-project/best.pt"
+    
+    # 모델 로드
+    model = QueryBasedDetector(best_pt_path=BEST_PT_FILE)
+    
+    # 임의의 테스트 이미지와 질문으로 테스트
+    test_img = "/data/danielsohn0827000/unid/open/test/images/MI2_240819_TY1_0012_3.jpg" # 테스트 이미지 경로로 수정
+    test_query = "유가 및 나프타 가격 꺾은선형"
+    
+    print(f"Test Query: {test_query}")
+    bbox_xywh = model.predict(test_img, test_query)
+    
+    print(f"Predicted BBox [x, y, w, h]: {bbox_xywh}")

@@ -1,24 +1,16 @@
-# Byte-compiled / optimized / DLL files
+# Python cache
 __pycache__/
-*.py[cod]
-*$py.class
+*.pyc
 
-# C extensions
-*.so
+# SLURM 로그
+logs/
+*.out
 
-# Distribution / packaging
-build/
-dist/
-*.egg-info/
+# YOLO 학습 폴더 (!!매우 큼!!)
+finetune_run/
 
-# Model files
-*.pth
-*.pt
+# VSCode 설정
+.vscode/
 
-# OS-specific
-.DS_Store
-Thumbs.db
-
-# Environments
-.venv/
-venv/
+# 다운로드한 원본 가중치 (선택 사항)
+# report-8n.pt

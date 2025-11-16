@@ -13,7 +13,7 @@ source ~/.bashrc
 
 # 2. 본인의 가상환경 활성화 (base 환경)
 conda activate base
-python3 test.py
+python3 train.py
 
 # letting slurm know this code finished without any problem
 exit 0
